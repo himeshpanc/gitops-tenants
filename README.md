@@ -8,7 +8,7 @@ gates. Kargo never touches a cluster directly; **the commit here is the hand-off
 and Flux does the actual deploy.
 
 > ⚠️ Demo / workshop repo — **generic content only** (podinfo + a version pin).
-> No real infrastructure, no customer data. The podinfo image tag stands in for
+> No real infrastructure. The podinfo image tag stands in for
 > "the thing being promoted."
 
 ---
