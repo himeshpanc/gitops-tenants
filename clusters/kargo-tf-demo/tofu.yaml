@@ -19,6 +19,10 @@ rules:
   - apiGroups: ["external-secrets.io"]
     resources: ["externalsecrets", "secretstores"]
     verbs: ["*"]
+  # kubernetes_manifest (for the ExternalSecret) must look up CRD schemas at plan time.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
