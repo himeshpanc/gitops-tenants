@@ -6,4 +6,4 @@ resources:
 images:
   # The version pin. A "promotion" = bumping newTag here (Kargo does this later).
   - name: ghcr.io/stefanprodan/podinfo
-    newTag: "6.14.0"
+    newTag: "6.13.0"
