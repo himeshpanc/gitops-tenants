@@ -128,14 +128,14 @@ live *values*.
 2. Promote to **canary** → Kargo: `git-clone → (kustomize-set-image | hcl-update) → git-commit → git-push` (**direct to `main`**).
 3. Flux (kustomize- or tofu-controller) applies the canary ring → podinfo rolls.
 4. **Verification** (gate): an `AnalysisRun` polls the canary until it reflects the promoted version → Freight is "verified in canary".
-5. Promote to **prod** → same steps; the app track's prod is **PR-based** (`git-open-pr → git-wait-for-pr`, pauses for a human merge).
+5. Promote to **prod** → same steps; **both** tracks' prod stages are **PR-based** (`git-open-pr → git-wait-for-pr`, pauses for a human merge).
 6. Flux applies the prod ring → the rest of the fleet rolls.
 
 ### Gates
 | Gate | Where | Nature |
 |---|---|---|
 | **verification** | canary (both tracks) | automated, post-deploy (AnalysisRun) |
-| **PR review** | app-track prod | human, pre-deploy (merge = approval) |
+| **PR review** | **prod** (both tracks: `prod` & `tf-prod`) | human, pre-deploy (merge = approval) |
 
 If canary verification **fails**, the Freight is never marked verified → **prod never receives it** (bad version halts at one canary tenant).
 
