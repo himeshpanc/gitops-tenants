@@ -45,14 +45,25 @@ flowchart LR
 ## Repository layout
 
 ```
-tenants/
-  canary/                 # ring 1 — one pilot tenant   → namespace: canary
-    namespace.yaml        # Namespace: canary
-    podinfo.yaml          # podinfo Deployment + Service
-    kustomization.yaml    # image pin (newTag)  ← the version Kargo bumps
-  prod/                   # ring 2 — the rest of the fleet → namespace: prod
+tenants/                    # tenant workloads (Kargo promotes into these)
+  canary/                   # ring 1 — one pilot tenant   → namespace: canary
+    namespace.yaml
+    podinfo.yaml            # podinfo Deployment + Service
+    kustomization.yaml      # image pin (newTag)  ← the version Kargo bumps
+  prod/                     # ring 2 — the rest of the fleet → namespace: prod
     namespace.yaml
     podinfo.yaml
+    kustomization.yaml
+
+platform/                   # cluster platform addons (Flux-managed, GitOps)
+  addons/                   # HelmRepositories + HelmReleases
+    helmrepositories.yaml   # openbao / external-secrets / stakater repos
+    openbao.yaml            # HelmRelease: OpenBao  (hub secrets, dev mode)
+    external-secrets.yaml   # HelmRelease: External-Secrets Operator
+    reloader.yaml           # HelmRelease: Reloader
+    kustomization.yaml
+  config/                   # applied after addons (dependsOn)
+    clustersecretstore.yaml # ESO ClusterSecretStore → OpenBao
     kustomization.yaml
 ```
 
@@ -65,6 +76,26 @@ images:
 ```
 
 A promotion changes only the target ring's file, so rings advance independently.
+
+---
+
+## Platform addons (`platform/`, Flux-managed)
+
+The cluster's platform prerequisites are installed and managed by **Flux as
+HelmReleases** (not imperative `helm install`), so they're version-controlled and
+appear in the Flux UI:
+
+- **OpenBao** (hub secrets, dev mode) — KV store the tenants pull from
+- **External-Secrets Operator** — syncs secrets from OpenBao into namespaces
+- **Reloader** — restarts workloads when a secret/config changes
+- **ClusterSecretStore** (`platform/config`) — wires ESO → OpenBao
+
+Delivered by two Flux Kustomizations with ordering: `platform-addons` (HelmReleases)
+→ `platform-config` (ClusterSecretStore) via `dependsOn`.
+
+> Notes: ESO's oversized CRDs are applied server-side out-of-band (a known ESO+Helm
+> limitation), and OpenBao runs in **dev mode** (ephemeral) — both are demo choices,
+> not production.
 
 ---
 
@@ -128,14 +159,15 @@ Both are managed as code elsewhere in the demo workspace (`flux-apps/`, `kargo/`
 
 ## Roadmap — Terraform track (in progress)
 
-To mirror the customer's real platform (Terraform-provisioned tenants), a parallel
-track is being added:
+To mirror the customer's real platform (Terraform-provisioned tenants):
 
-- **Flux tf-controller** applies Terraform instead of kustomize.
-- A **Git-tagged TF module** (deploying podinfo) becomes the version source;
-  Kargo's **`hcl-update`** step bumps the module ref instead of `kustomize-set-image`.
-- Tenants also get **External-Secrets** (syncing from an **OpenBao** hub) and
-  **Reloader**, provisioned by the tenant Terraform.
+- **Flux tf-controller** is installed; the tenant workloads will move from
+  kustomize to a `Terraform` CR that applies a **Git-tagged TF module** (deploying
+  podinfo).
+- The **module `ref`** becomes the version source; Kargo's **`hcl-update`** step
+  bumps it instead of `kustomize-set-image`.
+- The tenant Terraform will wire **per-tenant ExternalSecrets** (from the OpenBao
+  hub — already deployed under `platform/`) + **Reloader** annotations.
 
 The promotion mechanism (Warehouse → canary → verify → prod) is unchanged — only
 the executor (tf-controller) and the promotion step (`hcl-update`) differ.
