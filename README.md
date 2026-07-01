@@ -125,19 +125,29 @@ live *values*.
 ## How a promotion flows (both tracks)
 
 1. **Warehouse** discovers a new version (image tag / TF module tag) → creates **Freight**.
-2. Promote to **canary** → Kargo: `git-clone → (kustomize-set-image | hcl-update) → git-commit → git-push` (**direct to `main`**).
+2. **canary auto-promotes** (no manual step) → Kargo: `git-clone → (kustomize-set-image | hcl-update) → git-commit → git-push` (**direct to `main`**).
 3. Flux (kustomize- or tofu-controller) applies the canary ring → podinfo rolls.
 4. **Verification** (gate): an `AnalysisRun` polls the canary until it reflects the promoted version → Freight is "verified in canary".
-5. Promote to **prod** → same steps; **both** tracks' prod stages are **PR-based** (`git-open-pr → git-wait-for-pr`, pauses for a human merge).
-6. Flux applies the prod ring → the rest of the fleet rolls.
+5. **Soak** → the Freight must bake `2m` in canary before it is *eligible* for prod.
+6. Promote to **prod** → a **deliberate manual step**; the tail is **PR-based** (`git-open-pr → git-wait-for-pr`, pauses for a human merge).
+7. On merge, Flux applies the prod ring → the rest of the fleet rolls.
 
-### Gates
+### Gates (recommended shape: auto up to pre-prod, explicit for prod)
 | Gate | Where | Nature |
 |---|---|---|
+| **auto-promotion** | canary (`ProjectConfig.promotionPolicies`, canaries only) | automatic on new Freight |
 | **verification** | canary (both tracks) | automated, post-deploy (AnalysisRun) |
-| **PR review** | **prod** (both tracks: `prod` & `tf-prod`) | human, pre-deploy (merge = approval) |
+| **soak time** | prod eligibility (`requiredSoakTime: 2m`) | time-based bake in canary |
+| **manual + PR review** | **prod** (`prod` & `tf-prod`) | human: explicit promote **and** PR merge |
 
 If canary verification **fails**, the Freight is never marked verified → **prod never receives it** (bad version halts at one canary tenant).
+
+### Less duplication: `PromotionTask`
+The TF track's shared steps (`git-clone → hcl-update → git-commit`) are factored into a
+reusable **`PromotionTask`** (`tf-promo`, parameterized by `tenantPath`). `tf-canary` and
+`tf-prod` each `task: tf-promo` then add their own push tail (direct vs PR) — so the
+promotion logic lives in one place. (These live in the Akuity control plane, not this repo —
+see below.)
 
 ---
 
