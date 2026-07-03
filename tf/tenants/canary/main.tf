@@ -5,6 +5,7 @@ terraform {
   backend "kubernetes" {
     secret_suffix = "tenant-canary"
     namespace     = "kargo-tf-state"
+    config_path   = "kubeconfig"
   }
   required_providers {
     kubernetes = {
@@ -14,8 +15,10 @@ terraform {
   }
 }
 
-# Auth via KUBE_HOST / KUBE_TOKEN / KUBE_CLUSTER_CA_CERT_DATA env (set by the step).
-provider "kubernetes" {}
+# Same kubeconfig as the backend; token comes from $KUBE_TOKEN at runtime.
+provider "kubernetes" {
+  config_path = "kubeconfig"
+}
 
 # The module ref IS the version pin. Kargo's hcl-update bumps ?ref=... here.
 module "podinfo" {
