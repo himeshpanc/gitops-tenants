@@ -1,4 +1,10 @@
 terraform {
+  # State lives in a Secret in-cluster (ephemeral promotion pod → no local state).
+  backend "kubernetes" {
+    secret_suffix     = "tenant-canary"
+    namespace         = "kargo-tf-state"
+    in_cluster_config = true
+  }
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
