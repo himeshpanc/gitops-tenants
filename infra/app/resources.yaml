@@ -25,9 +25,10 @@ spec:
           env:
             - name: PODINFO_UI_MESSAGE
               valueFrom:
-                configMapKeyRef:
+                secretKeyRef:
                   name: podinfo-greeting
                   key: message
+                  optional: true
           ports:
             - name: http
               containerPort: 9898

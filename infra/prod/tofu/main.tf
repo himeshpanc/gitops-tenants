@@ -18,15 +18,17 @@ variable "module_version" {
 }
 
 locals {
+  path     = "infra-prod-${var.module_version}"
   greeting = "greetings from tofu-provisioned OpenBao (module ${var.module_version})"
 }
 
 resource "vault_kv_secret_v2" "greeting" {
   mount     = "secret"
-  name      = "infra-prod"
+  name      = local.path
   data_json = jsonencode({ greeting = local.greeting })
 }
 
-output "greeting" {
-  value = local.greeting
+# The versioned path the ExternalSecret should point at (flows into git via yaml-update).
+output "secret_path" {
+  value = local.path
 }

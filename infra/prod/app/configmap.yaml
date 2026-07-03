@@ -1,8 +1,0 @@
-# Kargo's yaml-update writes the tofu output (the greeting) into data.message.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: podinfo-greeting
-  namespace: infra-prod
-data:
-  message: greetings from tofu-provisioned OpenBao (module 6.23.0)
