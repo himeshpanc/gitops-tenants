@@ -3,15 +3,6 @@ kind: Namespace
 metadata:
   name: infra-demo
 ---
-# Kargo's yaml-update writes the tofu output (the greeting) into data.message here.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: podinfo-greeting
-  namespace: infra-demo
-data:
-  message: placeholder-set-by-kargo
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
