@@ -1,9 +1,10 @@
 terraform {
-  # State lives in a Secret in-cluster (ephemeral promotion pod → no local state).
+  # State lives in a Secret in-cluster. host/token/CA come from KUBE_* env,
+  # which the promotion step sets from the `tf-kube` Kargo secret (the promotion
+  # pod does not mount a SA token, so we supply an explicit scoped token).
   backend "kubernetes" {
-    secret_suffix     = "tenant-prod"
-    namespace         = "kargo-tf-state"
-    in_cluster_config = true
+    secret_suffix = "tenant-prod"
+    namespace     = "kargo-tf-state"
   }
   required_providers {
     kubernetes = {
@@ -13,11 +14,8 @@ terraform {
   }
 }
 
-provider "kubernetes" {
-  host                   = "https://kubernetes.default.svc"
-  token                  = file("/var/run/secrets/kubernetes.io/serviceaccount/token")
-  cluster_ca_certificate = file("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
-}
+# Auth via KUBE_HOST / KUBE_TOKEN / KUBE_CLUSTER_CA_CERT_DATA env (set by the step).
+provider "kubernetes" {}
 
 # The module ref IS the version pin. Kargo's hcl-update bumps ?ref=... here.
 module "podinfo" {
