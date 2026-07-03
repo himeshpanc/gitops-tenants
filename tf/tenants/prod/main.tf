@@ -22,7 +22,7 @@ provider "kubernetes" {
 
 # The module ref IS the version pin. Kargo's hcl-update bumps ?ref=... here.
 module "podinfo" {
-  source    = "git::https://github.com/himeshpanc/tf-podinfo-module.git//?ref=6.19.0"
+  source    = "git::https://github.com/himeshpanc/tf-podinfo-module.git//?ref=6.20.0"
   namespace = "tf-prod"
   replicas  = 2
 }
