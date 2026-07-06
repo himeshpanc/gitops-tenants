@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-c
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: podinfo
+  namespace: tenant-c
+  annotations:
+    # Restart when the greeting ConfigMap changes (so the new message shows).
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: podinfo }
+  template:
+    metadata:
+      labels: { app: podinfo }
+    spec:
+      containers:
+        - name: podinfo
+          image: ghcr.io/stefanprodan/podinfo:6.14.0
+          env:
+            - name: PODINFO_UI_MESSAGE
+              valueFrom:
+                secretKeyRef:
+                  name: podinfo-greeting
+                  key: message
+                  optional: true
+          ports:
+            - name: http
+              containerPort: 9898
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: podinfo
+  namespace: tenant-c
+spec:
+  selector: { app: podinfo }
+  ports:
+    - name: http
+      port: 9898
+      targetPort: http
