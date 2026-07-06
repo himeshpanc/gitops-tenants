@@ -4,3 +4,8 @@ resources:
   - externalsecret.yaml
   - resources.yaml
   - ingress.yaml
+# Deployment replica count — driven by the platform module MINOR version via a
+# Kargo yaml-update on this field (int, so it stays unquoted). Seeded at 2 (=1.2.0).
+replicas:
+  - name: podinfo
+    count: 2
