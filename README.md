@@ -2,173 +2,174 @@
 
 **GitOps source of truth for the Kargo + Flux progressive-delivery demo.**
 
-Flux watches this repo and applies each tenant "ring". **Kargo** promotes new
-versions *into* this repo — ring by ring — behind verification and approval gates.
-Kargo never touches a cluster directly; **the commit here is the hand-off**, and
-Flux does the actual deploy.
+This repo describes *what should be running on the cluster*. **Kargo** promotes new
+versions *into* this repo — environment by environment, behind verification and approval
+gates — and **Flux** watches the repo and applies each change. Kargo never touches a
+cluster directly; **the commit here is the hand-off**, and Flux does the actual deploy.
 
-> ⚠️ Demo / workshop repo — **generic content only** (podinfo + version pins,
-> dev-mode OpenBao). No real infrastructure. The podinfo image / TF module tag
-> stands in for "the thing being promoted."
+> ⚠️ Demo / workshop repo — **generic content only** (podinfo + version pins, dev-mode
+> OpenBao). No real infrastructure. `podinfo` and the module tags stand in for "the thing
+> being promoted."
 
-## Two tracks, one pipeline
+## The whole loop in one line
 
-The repo runs the **same Kargo pipeline** over two different Flux executors:
+**Tag a trigger repo → Kargo promotes & verifies the version (writing here) → Flux
+applies it → `podinfo` shows the new version**, one environment at a time, with prod
+gated by a human.
 
-| Track | Path | Executor | Kargo "bump" step | Tenants |
-|---|---|---|---|---|
-| **app** | `tenants/` | Flux **kustomize-controller** | `kustomize-set-image` (image tag) | `canary`, `prod` |
-| **terraform** | `tf/` | Flux **tofu-controller** | `hcl-update` (module `?ref=`) | `tf-canary`, `tf-prod` |
-
-Both are `Warehouse → canary → verify → prod`. Only the executor + the bump step differ —
-which is exactly the point: **Kargo's progressive-delivery model is the same whether you
-deliver manifests or Terraform.**
+The trigger repos hold no logic — just **git tags** that represent a "version":
+- `tenant-platform-module` → drives the **fleet** demo
+- `tf-podinfo-module` → drives the **infra** demo
 
 ---
 
-## The pattern
+## Two demos
+
+| Demo | Stages | Trigger repo (Warehouse) | What it shows |
+|---|---|---|---|
+| **Infra (Pattern A)** | `infra-demo` → `infra-prod` | `tf-podinfo-module` tags | Single-env promotion: tofu writes config to OpenBao, Flux applies. Demo auto; prod PR-gated. |
+| **Fleet** | `tenant-a` → `tenant-b` + `tenant-c` | `tenant-platform-module` tags | A tenant fleet: `tenant-a` is the auto **canary** (verified + soaked), then fan out to prod tenants **b/c** via PR. |
+
+Both sit on a **shared platform** (installed once, Flux-managed): External-Secrets,
+OpenBao, Reloader, cert-manager, ingress-nginx.
+
+---
+
+## Pattern A — how a promotion works (tofu never touches the cluster)
 
 ```mermaid
 flowchart LR
-    SRC["New version<br/>(image tag OR TF module tag)"] --> WH
-
-    subgraph KARGO["Kargo (Akuity SaaS control plane + self-hosted agent)"]
+    SRC["New tag<br/>(trigger repo)"] --> WH
+    subgraph KARGO["Kargo (Akuity control plane + self-hosted agent)"]
         WH["Warehouse<br/>detect → Freight"]
-        CAN["Stage: canary"]
+        CAN["Stage: demo / canary"]
         PROD["Stage: prod"]
         WH --> CAN
-        CAN -->|"verified"| PROD
+        CAN -->|"verified + soaked"| PROD
     end
-
-    CAN -->|"commit (direct push)"| REPO[("this repo")]
+    CAN -->|"tofu → OpenBao, then commit (direct push)"| REPO[("this repo")]
     PROD -->|"commit (via PR)"| REPO
-    REPO --> FLUX["Flux (in cluster)<br/>kustomize-controller OR tofu-controller"]
-    FLUX -->|"apply"| NS["podinfo<br/>tenant namespaces"]
+    REPO --> FLUX["Flux (in cluster)"]
+    FLUX -->|"apply"| NS["podinfo namespaces"]
+    OB[("OpenBao")]
+    CAN -.->|"tf-apply writes config"| OB
+    NS -.->|"ExternalSecret reads"| OB
 ```
 
-Kargo detects a new version → **writes to this repo** (bumps a pin). Flux (kustomize- or
-tofu-controller) reconciles the commit and applies it. The two are decoupled — they only
-meet at this repo.
+During a promotion Kargo runs: `git-clone → tf-plan → tf-apply → tf-output →
+yaml-update → git-commit → git-push → flux-reconcile-wait`. **tofu uses the `vault`
+provider against OpenBao — so it needs no kubeconfig/cluster creds.** It writes a
+versioned config to OpenBao, then `yaml-update` repoints the app's `ExternalSecret` to
+that new versioned key, commits, and Flux applies. Because "which version is served"
+lives in the committed `ExternalSecret` key, the **prod PR truly gates it** — tofu writes
+to OpenBao immediately, but prod keeps serving the old version until the PR merges.
 
 ---
 
 ## Repository layout
 
 ```
-tenants/                    # APP track — podinfo via kustomize
-  canary/ prod/             #   namespace + podinfo(Deployment/Service) + kustomization
-                            #   version pin = images[].newTag  (kustomize-set-image bumps it)
+platform/                     # shared services — Flux HelmReleases + config (installed once)
+  addons/                     #   OpenBao, External-Secrets, Reloader, cert-manager, ingress-nginx + HelmRepositories
+  config/                     #   ClusterSecretStore (ESO → OpenBao) + cert-manager CA issuer  (dependsOn addons)
 
-tf/                         # TERRAFORM track — podinfo via a TF module
-  tenants/
-    canary/main.tf          #   kubernetes provider + module "podinfo" { source=…?ref=X, namespace }
-    prod/main.tf            #   version pin = module ?ref=  (hcl-update bumps it)
-                            #   module code = separate repo `tf-podinfo-module` (git-tagged per version)
+infra/                        # INFRA demo (Pattern A) — two environments
+  tofu/ app/ kubeconfig       #   infra-demo   (tofu writes secret/infra-demo-<ver>)
+  prod/tofu/ prod/app/ …      #   infra-prod   (tofu writes secret/infra-prod-<ver>)
 
-platform/                   # cluster addons — Flux HelmReleases + ClusterSecretStore
-  addons/                   #   OpenBao / External-Secrets / Reloader HelmReleases
-  config/                   #   ESO ClusterSecretStore → OpenBao  (dependsOn addons)
+fleet/tenants/                # FLEET demo — one self-contained slice per tenant
+  tenant-a/ tenant-b/ tenant-c/
+    tofu/main.tf              #   writes this tenant's config bundle to OpenBao
+    app/resources.yaml        #   podinfo Deployment + Service + Namespace
+    app/externalsecret.yaml   #   pulls the config from OpenBao (version-pinned key)
+    app/ingress.yaml          #   cert-manager Certificate + nginx Ingress (real components)
+    app/kustomization.yaml    #   bundles the app + sets the replica count
+    kubeconfig                #   lets the promotion's flux-reconcile step reach the cluster
 
-clusters/kargo-tf-demo/     # WIRING (app-of-apps) — reconciled by the root cluster-config Kustomization
-  kustomizations.yaml       #   Flux Kustomizations: tenant-canary/prod + platform-addons/config
-  tofu.yaml                 #   tofu-controller RBAC (tf-runner) + tenant-canary-tf/tenant-prod-tf Terraform CRs
+clusters/kargo-tf-demo/       # WIRING (app-of-apps) — reconciled by the root cluster-config Kustomization
+  kustomization.yaml
+  kustomizations.yaml         #   Flux Kustomizations: platform-addons + platform-config
 ```
 
-**Where a promotion writes:**
+**Where a promotion writes** (the committed change that gates prod):
 ```yaml
-# app track — tenants/<ring>/kustomization.yaml
-images: [{ name: ghcr.io/stefanprodan/podinfo, newTag: "6.14.0" }]
+# <env>/app/externalsecret.yaml  — yaml-update repoints this key to the new version
+spec:
+  data:
+    - remoteRef: { key: tenant-a-1.4.0, property: greeting }   # was tenant-a-1.3.0
 ```
-```hcl
-# terraform track — tf/tenants/<ring>/main.tf
-module "podinfo" { source = "git::https://github.com/himeshpanc/tf-podinfo-module.git//?ref=6.15.0" }
-```
+The fleet also bumps the replica count in `app/kustomization.yaml` (replicas = the
+module's minor version, so a bump visibly rescales).
 
 ---
 
-## Platform addons (`platform/`, Flux-managed)
+## Shared platform (`platform/`, Flux-managed)
 
-Platform prerequisites are managed by **Flux as HelmReleases** (not imperative `helm install`),
-so they're version-controlled and show in the Flux UI:
+Prerequisites are managed by **Flux as HelmReleases** (not imperative `helm install`),
+so they're version-controlled and reproducible on a cluster rebuild:
 
-- **OpenBao** (hub secrets, dev mode) — KV store the tenants pull from
-- **External-Secrets Operator (ESO)** — syncs secrets from OpenBao into namespaces
-- **Reloader** — restarts workloads when a secret/config changes
-- **ClusterSecretStore** (`platform/config`) — wires ESO → OpenBao
+- **OpenBao** (hub secrets, dev mode) — the KV store tofu writes to and ESO reads from
+- **External-Secrets Operator (ESO)** — syncs OpenBao values into namespace Secrets
+- **Reloader** — restarts workloads when a Secret changes
+- **cert-manager** — issues each tenant's TLS cert (from the CA issuer in `config/`)
+- **ingress-nginx** — routes each tenant's Ingress
+- **ClusterSecretStore + CA issuer** (`platform/config`) — wires ESO → OpenBao and the
+  `selfsigned → demo-ca → demo-ca-issuer` chain
 
-Delivered by two Kustomizations with ordering: `platform-addons` → `platform-config` (`dependsOn`).
+Delivered by two Kustomizations with ordering: `platform-addons` → `platform-config`
+(`dependsOn`).
 
-> Notes: ESO's oversized CRDs are applied server-side out-of-band (a known ESO+Helm limitation),
-> and OpenBao runs in **dev mode** (ephemeral). Both are demo choices, not production.
-
----
-
-## Terraform track — full tenant provisioning
-
-The `tf-podinfo-module` (separate, git-tagged repo) provisions a **complete tenant**:
-- podinfo Deployment + Service
-- an **ExternalSecret** pulling `tenant-config` from the **OpenBao** hub → a K8s Secret
-- podinfo's greeting wired from that secret (`PODINFO_UI_MESSAGE`)
-- a **Reloader** annotation so a secret change auto-restarts the pod
-
-Flux **tofu-controller** applies each tenant root (the `Terraform` CRs live in `clusters/`).
-Kargo's **`hcl-update`** step bumps the module `?ref=`; verification checks that podinfo's
-greeting reflects the OpenBao value — proving the whole **tofu → ESO → Reloader** chain, not
-just that a pod is up.
-
-**Secret rotation** is continuous and separate from Kargo: change the value in OpenBao → ESO
-resyncs (~15s) → Reloader restarts podinfo. Kargo promotes the *wiring*; ESO+Reloader handle
-live *values*.
+> Notes: OpenBao runs in **dev mode** (ephemeral) — a demo choice, not production.
+> A CoreDNS shim (`tenant-*.demo.local` → the ingress) is applied out-of-band (see the
+> `cluster-addons/` folder in the workshop repo); it stands in for external-dns + real DNS.
 
 ---
 
-## How a promotion flows (both tracks)
+## How a promotion flows (both demos)
 
-1. **Warehouse** discovers a new version (image tag / TF module tag) → creates **Freight**.
-2. **canary auto-promotes** (no manual step) → Kargo: `git-clone → (kustomize-set-image | hcl-update) → git-commit → git-push` (**direct to `main`**).
-3. Flux (kustomize- or tofu-controller) applies the canary ring → podinfo rolls.
-4. **Verification** (gate): an `AnalysisRun` polls the canary until it reflects the promoted version → Freight is "verified in canary".
-5. **Soak** → the Freight must bake `2m` in canary before it is *eligible* for prod.
-6. Promote to **prod** → a **deliberate manual step**; the tail is **PR-based** (`git-open-pr → git-wait-for-pr`, pauses for a human merge).
-7. On merge, Flux applies the prod ring → the rest of the fleet rolls.
+1. **Warehouse** discovers a new tag on the trigger repo → creates **Freight**.
+2. **Canary/demo auto-promotes** → Kargo runs the Pattern A steps → **direct push to `main`**.
+3. Flux applies it → podinfo rolls (fleet also re-issues cert + ingress + rescales).
+4. **Verification** (gate): an `AnalysisRun` hits the tenant's **real ingress**
+   (`https://<tenant>.demo.local/`) until it reflects the new version — proving DNS + TLS +
+   routing + app, not just that a pod is up.
+5. **Soak** → the Freight must bake `2m` before it's eligible for prod.
+6. Promote to **prod** → a deliberate manual step; the tail is **PR-based**
+   (`git-open-pr → git-wait-for-pr`, pauses for a human merge).
+7. On merge, Flux applies the prod environment(s).
 
-### Gates (recommended shape: auto up to pre-prod, explicit for prod)
+### Gates (auto up to pre-prod, explicit for prod)
 | Gate | Where | Nature |
 |---|---|---|
-| **auto-promotion** | canary (`ProjectConfig.promotionPolicies`, canaries only) | automatic on new Freight |
-| **verification** | canary (both tracks) | automated, post-deploy (AnalysisRun) |
-| **soak time** | prod eligibility (`requiredSoakTime: 2m`) | time-based bake in canary |
-| **manual + PR review** | **prod** (`prod` & `tf-prod`) | human: explicit promote **and** PR merge |
+| **auto-promotion** | canary / demo (`ProjectConfig.promotionPolicies`) | automatic on new Freight |
+| **verification** | canary / demo | automated post-deploy (AnalysisRun via the ingress) |
+| **soak time** | prod eligibility (`requiredSoakTime: 2m`) | time-based bake |
+| **manual + PR review** | **prod** | human: explicit promote **and** PR merge |
 
-If canary verification **fails**, the Freight is never marked verified → **prod never receives it** (bad version halts at one canary tenant).
-
-### Less duplication: `PromotionTask`
-The TF track's shared steps (`git-clone → hcl-update → git-commit`) are factored into a
-reusable **`PromotionTask`** (`tf-promo`, parameterized by `tenantPath`). `tf-canary` and
-`tf-prod` each `task: tf-promo` then add their own push tail (direct vs PR) — so the
-promotion logic lives in one place. (These live in the Akuity control plane, not this repo —
-see below.)
+If canary verification **fails**, the Freight is never marked verified → **prod never
+receives it** (a bad version halts at the canary).
 
 ---
 
 ## GitOps wiring (app-of-apps)
 
-Everything above is reconciled from Git by a single **root `cluster-config` Kustomization**
+Everything is reconciled from Git by a single **root `cluster-config` Kustomization**
 (`clusters/kargo-tf-demo/`). The only imperative **bootstrap seed** is:
 
 1. Flux Operator (Helm) + **FluxInstance**
 2. **GitRepository** `gitops-tenants`
 3. the root **`cluster-config`** Kustomization
 
-Past that seed, the Flux Kustomizations, the tofu `Terraform` CRs, and the `tf-runner` RBAC
-are all Git-managed. (The tofu-controller itself and the Flux Operator are Helm installs — the
-"install the Flux stack" layer.)
+Past that seed, the platform Kustomizations (and thus all the HelmReleases) are
+Git-managed. The **Kargo** config (Project, Warehouses, Stages, PromotionTasks,
+AnalysisTemplates) lives in the Akuity control plane — applied from a separate `kargo/`
+folder in the workshop repo, not here.
 
 ---
 
 ## Observe it
 
-- **Flux UI** (Flux Operator status page, `:9080`) — sources, kustomizations, workloads, HelmReleases.
-- `flux get kustomizations` / `kubectl -n flux-system get terraform` — applied revisions.
-- `kargo get stages --project kargo-flux-demo` — freight + verification status (app + tf stages).
-- podinfo: `kubectl -n <ns> port-forward svc/podinfo 9898:9898` then `curl localhost:9898/` (greeting) or `/version`.
+- **Flux UI** (Flux Operator status page) / `flux get kustomizations` — sources, kustomizations, HelmReleases, applied revisions.
+- `kargo get stages --project kargo-flux-demo` — freight + verification status.
+- OpenBao: `kubectl -n openbao exec openbao-openbao-0 -- sh -c 'VAULT_TOKEN=root vault kv get secret/<tenant>-<ver>'`.
+- podinfo: `kubectl -n <ns> exec deploy/podinfo -- wget -qO- localhost:9898/` (greeting) — or through the ingress with a `Host: <tenant>.demo.local` header.
