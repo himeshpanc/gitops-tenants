@@ -1,0 +1,41 @@
+# Per-tenant real components: a cert-manager Certificate (chains to the demo CA)
+# and an ingress-nginx Ingress. This makes each "tenant" run a genuine slice of
+# the platform stack (TLS + routing), not just a bare Deployment.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: podinfo-tls
+  namespace: tenant-c
+spec:
+  secretName: podinfo-tls
+  dnsNames:
+    - tenant-c.demo.local
+  issuerRef:
+    name: demo-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: podinfo
+  namespace: tenant-c
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - tenant-c.demo.local
+      secretName: podinfo-tls
+  rules:
+    - host: tenant-c.demo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: podinfo
+                port:
+                  number: 9898
