@@ -5,3 +5,5 @@ resources:
   - openbao.yaml
   - external-secrets.yaml
   - reloader.yaml
+  - cert-manager.yaml
+  - ingress-nginx.yaml
