@@ -1,35 +1,6 @@
-# Flux Kustomizations for both delivery tracks — reconciled from Git by the
-# root "cluster-config" Kustomization (app-of-apps).
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: tenant-canary
-  namespace: flux-system
-spec:
-  interval: 20s
-  sourceRef:
-    kind: GitRepository
-    name: gitops-tenants
-  path: ./tenants/canary
-  prune: true
-  wait: true
-  timeout: 2m
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: tenant-prod
-  namespace: flux-system
-spec:
-  interval: 20s
-  sourceRef:
-    kind: GitRepository
-    name: gitops-tenants
-  path: ./tenants/prod
-  prune: true
-  wait: true
-  timeout: 2m
----
+# Flux Kustomizations reconciled from Git by the root "cluster-config"
+# Kustomization (app-of-apps). Only the shared platform track lives here; the
+# infra-demo/prod and fleet (tenant-a/b/c) Kustomizations are applied directly.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
