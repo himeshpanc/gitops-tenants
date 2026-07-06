@@ -1,7 +1,6 @@
-# Pattern A (demo) — tofu provisions the greeting in OpenBao at a VERSIONED path
-# (secret/tenant-c-<version>). The ExternalSecret is repointed to this path via
-# yaml-update, so "which version the app serves" is a git-controlled decision.
-# tofu talks only to OpenBao (VAULT_ADDR/VAULT_TOKEN) — no cluster creds.
+# FLEET tenant (tenant-c) — tofu provisions a versioned tenant PLATFORM CONFIG bundle in
+# OpenBao (a realistic multi-field config, not just a greeting). The ExternalSecret
+# is repointed to secret/tenant-c-<version> via yaml-update. tofu talks only to OpenBao.
 terraform {
   required_providers {
     vault = {
@@ -19,17 +18,24 @@ variable "module_version" {
 }
 
 locals {
-  path     = "tenant-c-${var.module_version}"
-  greeting = "greetings from tofu-provisioned OpenBao (module ${var.module_version})"
+  path = "tenant-c-${var.module_version}"
+  # Realistic tenant platform config bundle (shown in the tf-plan / PR).
+  bundle = {
+    app_version   = var.module_version
+    replicas      = "2"
+    ingress_host  = "tenant-c.demo.local"
+    feature_flags = "ui=on,cache=on"
+    # Composed display value podinfo serves (via ESO).
+    greeting      = "platform v${var.module_version} — tenant-c (flags: ui=on,cache=on)"
+  }
 }
 
-resource "vault_kv_secret_v2" "greeting" {
+resource "vault_kv_secret_v2" "platform" {
   mount     = "secret"
   name      = local.path
-  data_json = jsonencode({ greeting = local.greeting })
+  data_json = jsonencode(local.bundle)
 }
 
-# The versioned path the ExternalSecret should point at (flows into git via yaml-update).
 output "secret_path" {
   value = local.path
 }
