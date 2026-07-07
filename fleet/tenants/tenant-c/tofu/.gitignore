@@ -1,5 +1,5 @@
 .terraform/
 .terraform.lock.hcl
-*.tfstate
-*.tfstate.backup
 tfplan
+# State persisted in git (destroy-in-plan demo) — tofu gets persistent state across
+# promotions so plans can show change/destroy. (Trades instant-repoint rollback.)
