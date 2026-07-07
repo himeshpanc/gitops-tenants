@@ -1,5 +1,6 @@
 .terraform/
 .terraform.lock.hcl
-*.tfstate
-*.tfstate.backup
 tfplan
+# TRIAL (destroy demo): tfstate is intentionally committed so tofu has persistent
+# state across promotions → plans can show change/destroy. Only for tenant-a.
+# (b/c stay stateless for the instant-rollback story.)
